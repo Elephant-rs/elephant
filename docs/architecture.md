@@ -4,62 +4,201 @@ Elephant is a PostgreSQL-first, type-safe query builder for Rust.
 
 Its primary goal is to provide an idiomatic Rust API for building and executing PostgreSQL queries without hiding SQL or PostgreSQL behind ORM abstractions.
 
-## Core Principles
+This document defines the architectural boundaries of Elephant.
 
-Elephant follows these architectural principles:
+---
+
+# 1. Documentation Responsibilities
+
+Elephant's documentation is divided into three levels.
+
+## Architecture
+
+`docs/architecture.md`
+
+Defines:
+
+* architectural boundaries
+* component responsibilities
+* dependency direction
+* data flow
+* architectural invariants
+* product boundaries
+
+This document answers:
+
+> How is Elephant architected?
+
+## Development Guidelines
+
+`docs/development.md`
+
+Defines:
+
+* development practices
+* SOLID principles
+* code organization
+* file responsibilities
+* testing standards
+* naming
+* error handling
+* dependency rules
+* code quality standards
+
+This document answers:
+
+> How should Elephant code be written?
+
+## Milestones
+
+`docs/milestones/`
+
+Defines:
+
+* current feature scope
+* deliverables
+* acceptance criteria
+* Definition of Done
+* implementation sequence
+
+These documents answer:
+
+> What should be implemented now?
+
+The precedence order is:
+
+```text
+Architecture
+     ↓
+Development Guidelines
+     ↓
+Active Milestone
+```
+
+A milestone must not violate architectural constraints or development standards in order to satisfy its acceptance criteria.
+
+If a milestone reveals that an architectural rule must change, the architecture must be explicitly reviewed and updated rather than silently bypassed.
+
+---
+
+# 2. Product Definition
+
+Elephant is:
+
+> A PostgreSQL-first, type-safe query builder for Rust.
+
+Elephant provides a type-safe, SQL-oriented Rust API for constructing and executing PostgreSQL queries while embracing PostgreSQL rather than abstracting it away.
+
+Elephant is not:
+
+> An ORM that happens to support PostgreSQL.
+
+Elephant is also not intended to become a generic database abstraction.
+
+PostgreSQL is part of the product identity.
+
+---
+
+# 3. Core Architectural Principles
+
+Elephant follows these principles:
 
 * PostgreSQL-first
 * Query Builder first
-* Type-safe whenever possible
+* type-safe whenever practical
 * SQL-oriented API
-* Explicit behavior over implicit behavior
-* No Active Record
-* No database dialect abstraction
-* No hidden queries
-* Async-first for database operations
-* Minimal runtime overhead
-* Compile-time validation whenever practical
-* PostgreSQL features should be exposed rather than abstracted away
+* explicit behavior
+* predictable SQL generation
+* no Active Record
+* no database dialect abstraction
+* no hidden queries
+* no implicit database access
+* async-first for I/O
+* query construction independent from execution
+* minimal runtime overhead
+* PostgreSQL capabilities exposed rather than hidden
 
-A developer familiar with PostgreSQL should be able to look at Elephant code and reasonably predict the generated SQL.
+A developer familiar with PostgreSQL should be able to inspect Elephant code and reasonably predict the SQL that will be generated.
 
-## High-Level Architecture
+Example:
 
-The main query pipeline is:
+```rust
+db.select((
+    User::id,
+    User::name,
+))
+.from(User::table)
+.where_(
+    User::active
+        .eq(true)
+        .and(User::age.gte(18))
+)
+.order_by(User::created_at.desc())
+.limit(20)
+```
+
+should correspond naturally to PostgreSQL equivalent to:
+
+```sql
+SELECT "users"."id", "users"."name"
+FROM "users"
+WHERE "users"."active" = $1
+  AND "users"."age" >= $2
+ORDER BY "users"."created_at" DESC
+LIMIT 20
+```
+
+with bindings:
 
 ```text
-Rust Query API
-      │
-      ▼
-Typed Query Builder
-      │
-      ▼
+$1 = true
+$2 = 18
+```
+
+---
+
+# 4. Architectural Layers
+
+Elephant is organized conceptually into the following layers:
+
+```text
+Schema
+   │
+   ▼
+Query Builder
+   │
+   ▼
 AST
-      │
-      ▼
+   │
+   ▼
 PostgreSQL Compiler
-      │
-      ▼
+   │
+   ▼
 CompiledQuery
- ┌────┴─────┐
- ▼          ▼
-SQL      Bindings
- │          │
- └────┬─────┘
-      ▼
+   │
+   ▼
 Executor
-      │
-      ▼
-Connection / Pool
-      │
-      ▼
+   │
+   ▼
+Client
+   │
+   ▼
+Protocol
+   │
+   ▼
+Transport
+   │
+   ▼
 PostgreSQL
 ```
 
-The reverse path is:
+The response path follows the opposite direction:
 
 ```text
 PostgreSQL
+    │
+    ▼
+Transport
     │
     ▼
 Protocol
@@ -74,47 +213,164 @@ Decoder
 Typed Rust Values
 ```
 
-Each layer must have a clear responsibility.
+Each layer owns a specific responsibility.
 
-## Query Builder
+| Layer               | Responsibility                                            |
+| ------------------- | --------------------------------------------------------- |
+| Schema              | Tables, columns, constraints and PostgreSQL type metadata |
+| Query Builder       | Public typed API for constructing queries                 |
+| AST                 | Internal semantic representation of SQL queries           |
+| PostgreSQL Compiler | Converts AST into PostgreSQL SQL and bindings             |
+| CompiledQuery       | Boundary between query construction and execution         |
+| Executor            | Executes compiled queries                                 |
+| Client              | Manages PostgreSQL sessions and query communication       |
+| Protocol            | Encodes and decodes PostgreSQL wire protocol messages     |
+| Transport           | TCP/TLS communication                                     |
+| Decoder             | Converts PostgreSQL values into Rust values               |
 
-The Query Builder is the primary public interface of Elephant.
+These boundaries should remain visible in the implementation.
 
-Example:
+---
 
-```rust
-db.select((User::id, User::name))
-    .from(User::table)
-    .where_(
-        User::active
-            .eq(true)
-            .and(User::age.gte(18))
-    )
-    .order_by(User::created_at.desc())
-    .limit(20)
+# 5. Dependency Direction
+
+Dependencies flow toward lower-level abstractions.
+
+The primary query path is:
+
+```text
+Schema
+   ↓
+Query Builder
+   ↓
+AST
+   ↓
+Compiler
 ```
 
-The Query Builder is responsible for:
+The execution path is:
 
-* providing an ergonomic Rust API
-* enforcing type constraints where possible
-* constructing the AST
-* preventing invalid combinations where practical
+```text
+Executor
+   ↓
+Client
+   ↓
+Protocol
+   ↓
+Transport
+```
 
-It must not:
+The compiler connects query construction with execution through:
 
-* execute queries
-* manage connections
-* generate SQL directly
-* contain PostgreSQL protocol logic
+```text
+AST
+ ↓
+Compiler
+ ↓
+CompiledQuery
+ ↓
+Executor
+```
 
-## Schema
+Dependencies must not arbitrarily flow in both directions.
 
-The schema layer represents PostgreSQL structures in Rust.
+---
+
+# 6. Forbidden Dependencies
+
+The following dependencies are architecturally forbidden unless this document is explicitly revised.
+
+```text
+Schema
+    ✗ must not depend on Query Builder
+
+AST
+    ✗ must not depend on Query Builder
+
+AST
+    ✗ must not depend on Compiler
+
+Compiler
+    ✗ must not depend on Executor
+
+Query Builder
+    ✗ must not depend on Executor
+
+Query Builder
+    ✗ must not depend on Client
+
+Query Builder
+    ✗ must not depend on Protocol
+
+Protocol
+    ✗ must not depend on Query Builder
+
+Protocol
+    ✗ must not depend on AST
+
+Transport
+    ✗ must not depend on Query Builder
+
+Transport
+    ✗ must not depend on AST
+```
+
+For example:
+
+```text
+Query Builder → AST
+```
+
+is valid.
+
+But:
+
+```text
+AST → Query Builder
+```
+
+is not.
+
+Likewise:
+
+```text
+Compiler → AST
+```
+
+is valid.
+
+But:
+
+```text
+AST → Compiler
+```
+
+is not.
+
+These rules exist to preserve independent reasoning and testing of each layer.
+
+---
+
+# 7. Schema Layer
+
+The Schema layer represents PostgreSQL database structures in Rust.
+
+Its responsibilities include:
+
+* tables
+* columns
+* PostgreSQL type metadata
+* primary keys
+* foreign keys
+* nullability
+* constraints
+* generated values
+* defaults
+* relation metadata
 
 Conceptually:
 
-```rust
+```text
 Table
 Column<T>
 PrimaryKey<T>
@@ -126,36 +382,183 @@ Example:
 ```rust
 User::table
 User::id
+User::name
 User::email
+User::active
 User::created_at
 ```
 
-Columns carry their Rust/PostgreSQL type information.
+Columns carry compile-time type information.
 
-Example:
+Conceptually:
 
 ```text
 users.id          → Column<Uuid>
-users.name        → Column<Text>
-users.active      → Column<Bool>
+users.name        → Column<String>
+users.active      → Column<bool>
 users.created_at  → Column<Timestamp>
 ```
 
-The schema layer enables compile-time validation of expressions.
+The Schema layer provides metadata to the Query Builder.
+
+It does not construct complete queries.
+
+It does not compile SQL.
+
+It does not perform I/O.
+
+---
+
+# 8. Type Safety Boundary
+
+Type safety is primarily enforced at Elephant's public API boundary.
+
+The Query Builder and Schema layers should use Rust's type system to prevent invalid operations whenever doing so provides meaningful safety.
 
 For example:
 
 ```rust
-User::age.eq(30)
+User::age.eq(18)
 ```
 
 should compile.
 
-An incompatible comparison should fail at compile time whenever reasonably possible.
+While:
 
-## Expressions
+```rust
+User::age.eq("eighteen")
+```
 
-Expressions represent SQL expressions independently of SQL rendering.
+should fail at compile time.
+
+Likewise, operations should only exist where semantically appropriate.
+
+For example:
+
+```rust
+User::name.ilike("%john%")
+```
+
+is valid for a compatible textual column.
+
+An equivalent operation on an incompatible numeric column should not be accepted by the typed API.
+
+However, compile-time information should not automatically propagate through every internal layer if doing so creates excessive generic complexity.
+
+The architectural rule is:
+
+> Type safety belongs primarily at the API boundary; the internal AST should prioritize a stable, understandable semantic representation.
+
+The Query Builder may use generics extensively to validate operations and then lower those operations into a simpler internal AST.
+
+Avoid architectures where every AST node becomes deeply parameterized solely to preserve information that has already been validated.
+
+For example, avoid unnecessary internal structures resembling:
+
+```text
+SelectQuery<
+    Projection<
+        Tuple3<
+            Column<User, Uuid>,
+            Column<User, String>,
+            Aggregate<
+                Count<
+                    Column<Post, Uuid>
+                >
+            >
+        >
+    >,
+    From<User>,
+    ...
+>
+```
+
+unless such complexity provides a concrete and necessary capability.
+
+Type safety is a product feature.
+
+Generic complexity is not.
+
+---
+
+# 9. Query Builder
+
+The Query Builder is Elephant's primary public interface.
+
+Example:
+
+```rust
+db.select((
+    User::id,
+    User::name,
+))
+.from(User::table)
+.where_(
+    User::active
+        .eq(true)
+        .and(User::age.gte(18))
+)
+.order_by(User::created_at.desc())
+.limit(20)
+```
+
+Its responsibilities are:
+
+* provide an ergonomic Rust API
+* enforce type constraints
+* validate query construction where practical
+* transform typed operations into AST nodes
+* preserve SQL-oriented semantics
+
+The Query Builder must not:
+
+* perform database I/O
+* manage connections
+* manage connection pools
+* encode PostgreSQL protocol messages
+* decode PostgreSQL rows
+* directly generate SQL strings
+
+The Query Builder constructs semantic query representations.
+
+It does not execute them.
+
+---
+
+# 10. Query Construction Performs No I/O
+
+Query construction must always remain independent from PostgreSQL.
+
+This:
+
+```rust
+let query = db
+    .select(...)
+    .from(...)
+    .where_(...);
+```
+
+must not:
+
+* acquire a connection
+* open a socket
+* communicate with PostgreSQL
+* execute SQL
+* inspect database state
+
+This architectural property allows queries to be:
+
+* tested without PostgreSQL
+* inspected
+* compiled independently
+* used by tooling
+* used by the future Elephant Console
+
+---
+
+# 11. Expression System
+
+Expressions represent SQL semantics.
 
 Examples:
 
@@ -189,13 +592,15 @@ AND
     └── Parameter(18)
 ```
 
-Expressions must not contain rendered SQL.
+Expressions describe semantics.
 
-They describe SQL semantics.
+They do not contain pre-rendered SQL.
 
-## AST
+---
 
-The AST is the internal representation of a query.
+# 12. AST
+
+The AST is Elephant's internal semantic representation of a query.
 
 Example:
 
@@ -220,18 +625,75 @@ Select
     └── 20
 ```
 
+The AST represents what the query means.
+
+It does not represent how PostgreSQL communicates over the network.
+
 The AST must not know:
 
-* how PostgreSQL connections work
-* how queries are executed
-* how connection pools work
-* how PostgreSQL wire messages are encoded
+* connection state
+* connection pools
+* sockets
+* TLS
+* PostgreSQL wire messages
+* row decoding
+* query execution
 
-It only represents the query.
+---
 
-## PostgreSQL Compiler
+# 13. AST Is Not the Public API
 
-The PostgreSQL Compiler converts an AST into PostgreSQL SQL.
+The AST is an internal representation.
+
+Users should construct queries through Elephant's Query Builder.
+
+The normal direction is:
+
+```text
+Public Query API
+       ↓
+Typed validation
+       ↓
+AST
+```
+
+Users should not need to manually construct internal AST nodes.
+
+This separation allows Elephant to evolve its internal query representation without unnecessarily breaking its public API.
+
+A low-level AST API may exist in the future if there is a concrete use case, but it must be deliberate rather than accidental exposure of internals.
+
+---
+
+# 14. AST Does Not Render SQL
+
+AST nodes must not contain PostgreSQL rendering logic.
+
+Avoid designs conceptually equivalent to:
+
+```rust
+expression.to_postgres_sql()
+```
+
+when the expression itself is responsible for rendering PostgreSQL.
+
+Instead:
+
+```text
+AST
+ ↓
+PostgreSQL Compiler
+ ↓
+SQL
+```
+
+This preserves separation between semantic representation and SQL rendering.
+
+---
+
+# 15. PostgreSQL Compiler
+
+The PostgreSQL Compiler transforms AST into PostgreSQL SQL.
 
 ```text
 AST
@@ -254,25 +716,32 @@ ORDER BY "users"."created_at" DESC
 LIMIT 20
 ```
 
-With bindings:
+Bindings:
 
 ```text
 $1 = true
 $2 = 18
 ```
 
-The compiler is responsible for:
+The compiler owns PostgreSQL-specific rendering behavior.
+
+Its responsibilities include:
 
 * PostgreSQL syntax
 * identifier quoting
-* aliases
 * parameter numbering
-* PostgreSQL-specific operators
-* generating valid SQL
+* aliases
+* operators
+* expressions
+* PostgreSQL-specific query syntax
 
-The compiler must never interpolate user values directly into SQL.
+The compiler must be deterministic.
 
-## CompiledQuery
+Given the same AST, it must produce equivalent SQL and binding order.
+
+---
+
+# 16. CompiledQuery
 
 Compilation produces a structure conceptually equivalent to:
 
@@ -283,19 +752,37 @@ pub struct CompiledQuery {
 }
 ```
 
-`CompiledQuery` is the boundary between query construction and query execution.
+`CompiledQuery` is an important architectural boundary.
 
-Everything before this structure is concerned with describing a query.
+Before this boundary:
 
-Everything after it is concerned with communicating with PostgreSQL.
+```text
+Schema
+Query Builder
+AST
+Compiler
+```
 
-This boundary must remain explicit.
+are concerned with query description and compilation.
 
-## Parameters
+After this boundary:
 
-Values and identifiers are fundamentally different concepts.
+```text
+Executor
+Client
+Protocol
+Transport
+```
 
-Elephant must internally distinguish:
+are concerned with execution and communication.
+
+The execution layer should not need to understand the original Query Builder.
+
+---
+
+# 17. Identifiers, Parameters and Raw SQL
+
+Elephant must distinguish between:
 
 ```text
 Identifier
@@ -303,56 +790,205 @@ Parameter
 RawSql
 ```
 
+These concepts are fundamentally different.
+
+## Identifier
+
+Represents database identifiers such as:
+
+```text
+users
+email
+public
+user_id
+```
+
+Identifiers require PostgreSQL identifier quoting rules.
+
+## Parameter
+
+Represents data values.
+
 Given:
 
 ```rust
 User::email.eq("john@example.com")
 ```
 
-Elephant generates:
+Elephant should generate:
 
 ```sql
 "users"."email" = $1
 ```
 
-and stores:
+with:
 
 ```text
 $1 = "john@example.com"
 ```
 
-It must never generate:
+## RawSql
+
+Represents explicitly untyped/raw SQL supplied through an escape hatch.
+
+Raw SQL must never be confused internally with identifiers or values.
+
+---
+
+# 18. Parameter Safety
+
+User values should become PostgreSQL parameters whenever possible.
+
+Elephant should generate:
 
 ```sql
-"users"."email" = 'john@example.com'
+WHERE "email" = $1
 ```
 
-through direct string interpolation.
+rather than interpolating:
 
-## Execution
+```sql
+WHERE "email" = 'john@example.com'
+```
 
-The execution layer receives a `CompiledQuery`.
+Parameter numbering must remain deterministic.
+
+Nested expressions and subqueries must preserve correct binding order.
+
+---
+
+# 19. PostgreSQL-Specific Architecture
+
+Elephant intentionally embraces PostgreSQL.
+
+The architecture must support PostgreSQL-specific features naturally.
+
+Examples include:
+
+```text
+RETURNING
+ON CONFLICT
+DISTINCT ON
+ILIKE
+ANY
+ALL
+ARRAY
+JSON
+JSONB
+CTE
+WITH RECURSIVE
+LATERAL
+window functions
+FILTER
+FOR UPDATE
+FOR SHARE
+SKIP LOCKED
+advisory locks
+full-text search
+COPY
+LISTEN
+NOTIFY
+```
+
+PostgreSQL-specific features are not architectural leaks.
+
+They are part of Elephant's purpose.
+
+Do not weaken the architecture to accommodate hypothetical support for other databases.
+
+---
+
+# 20. PostgreSQL Extensions
+
+The architecture should allow optional PostgreSQL extensions to integrate without contaminating unrelated core components.
+
+Examples include:
+
+```text
+PostGIS
+pgvector
+```
+
+Extension-specific behavior should remain isolated where practical.
+
+The core should provide appropriate extension points only when concrete requirements emerge.
+
+Do not design a generic plugin system prematurely.
+
+---
+
+# 21. Raw SQL Escape Hatch
+
+Elephant must never prevent developers from using PostgreSQL directly.
+
+A future API may resemble:
+
+```rust
+db.raw("SELECT * FROM users WHERE id = $1")
+    .bind(id)
+    .all()
+    .await?
+```
+
+Raw SQL should remain explicit.
+
+It should continue to support parameter binding.
+
+The existence of raw SQL is intentional:
+
+> Elephant should make common PostgreSQL operations safer and more ergonomic without restricting advanced PostgreSQL usage.
+
+---
+
+# 22. Executor
+
+The Executor receives a `CompiledQuery`.
 
 Conceptually:
 
-```rust
-executor.execute(query).await
+```text
+CompiledQuery
+     │
+     ▼
+  Executor
 ```
 
-Its responsibilities are:
+Its responsibilities include:
 
-* acquire a connection
-* send the query
-* send parameters
-* receive PostgreSQL responses
-* propagate database errors
-* return rows/results
+* obtaining an appropriate connection
+* sending the compiled query
+* sending parameter values
+* receiving results
+* propagating database errors
+* coordinating row decoding
 
-The executor must not reconstruct or modify the query AST.
+The Executor must not reconstruct the original AST.
 
-## PostgreSQL Client
+It should not need to know how the Query Builder produced the query.
 
-Long term, Elephant should provide its own PostgreSQL client layer.
+---
+
+# 23. Executor Capability
+
+Eventually different execution contexts may need to execute the same compiled queries.
+
+For example:
+
+```text
+Database
+Transaction
+Dedicated Connection
+```
+
+The architecture should allow shared execution behavior without duplicating query-building logic.
+
+Do not introduce an execution trait until concrete execution implementations require such abstraction.
+
+---
+
+# 24. PostgreSQL Client
+
+The PostgreSQL Client manages a PostgreSQL session.
 
 Conceptually:
 
@@ -363,36 +999,113 @@ Executor
 Client
    │
    ▼
-PostgreSQL Protocol
+Protocol
    │
    ▼
-TCP/TLS
+Transport
 ```
 
-The client is responsible for:
+Responsibilities may include:
 
-* connection startup
+* startup
 * authentication
+* session state
 * prepared statements
+* statement lifecycle
+* portals
 * query execution
-* transactions
-* PostgreSQL messages
-* error responses
+* transaction commands
+* PostgreSQL responses
+
+The client should not know how high-level queries were constructed.
+
+It receives commands or compiled representations appropriate to its layer.
+
+---
+
+# 25. PostgreSQL Protocol
+
+The Protocol layer is responsible for PostgreSQL wire protocol semantics.
+
+Its responsibilities include:
+
+* frontend message encoding
+* backend message decoding
+* message types
+* protocol framing
+* authentication messages
 * row descriptions
 * data rows
+* error responses
+* ready-for-query state
 
-Elephant may use foundational libraries for:
+The Protocol layer must not depend on:
+
+* Query Builder
+* Schema
+* AST
+* application models
+
+It should be testable independently.
+
+---
+
+# 26. Transport
+
+Transport is the lowest communication layer.
+
+Its responsibilities include:
+
+```text
+TCP
+TLS
+byte transport
+connection lifecycle at transport level
+```
+
+Transport should not understand SQL.
+
+Transport should not understand Query Builder concepts.
+
+Transport should not understand AST nodes.
+
+Protocol semantics belong above the transport layer.
+
+---
+
+# 27. Foundational Dependencies
+
+Elephant may use established Rust infrastructure for concerns that are not part of its product differentiation.
+
+Examples include:
 
 * async runtime
-* networking
+* TCP primitives
 * TLS
 * cryptography
+* UUID
+* date/time
 
-It should not reimplement these components.
+Elephant should not reimplement these systems merely to claim zero dependencies.
 
-## Connection Pool
+However, core Elephant capabilities should remain owned by Elephant where they define the product.
 
-Pooling must remain separate from query construction.
+These include:
+
+```text
+Query AST
+Query Builder
+PostgreSQL compiler
+Schema type system
+```
+
+Long-term, PostgreSQL-specific execution components may also become Elephant-owned.
+
+---
+
+# 28. Connection Pool
+
+Connection pooling belongs below query construction.
 
 Conceptually:
 
@@ -408,137 +1121,29 @@ Pool
    └── Connection
 ```
 
-The pool will eventually manage:
+Responsibilities may include:
 
-* minimum connections
-* maximum connections
+* connection creation
 * acquisition
 * release
+* minimum connections
+* maximum connections
 * acquisition timeout
 * idle timeout
 * connection lifetime
 * health checks
-* broken connections
+* broken connection detection
 * graceful shutdown
 
-Queries must not know whether they are executed through a pooled or dedicated connection.
+Query ASTs must not know whether execution uses:
 
-## Row Decoding
+* a pool
+* a transaction
+* a dedicated connection
 
-PostgreSQL responses must be decoded independently of query construction.
+---
 
-Conceptually:
-
-```text
-DataRow
-   │
-   ▼
-PostgreSQL Types
-   │
-   ▼
-Decoder
-   │
-   ▼
-Rust Values
-```
-
-Eventually Elephant should support typed projections.
-
-Example:
-
-```rust
-db.select((
-    User::id,
-    User::name,
-))
-.from(User::table)
-.all()
-.await?
-```
-
-should infer a result corresponding to:
-
-```text
-(Uuid, String)
-```
-
-where practical.
-
-## Table Mapping
-
-Elephant may provide procedural macros for schema declaration.
-
-Example target API:
-
-```rust
-#[derive(Table)]
-#[table(name = "users")]
-struct User {
-    #[primary_key]
-    id: Uuid,
-
-    name: String,
-    email: String,
-    active: bool,
-}
-```
-
-Macros should generate metadata and repetitive implementations.
-
-They must not contain the core query-building logic.
-
-Core behavior should remain implemented using ordinary Rust types, traits and functions.
-
-## PostgreSQL-specific Features
-
-Elephant intentionally embraces PostgreSQL.
-
-Features such as the following belong naturally in the architecture:
-
-```text
-RETURNING
-ON CONFLICT
-DISTINCT ON
-ILIKE
-ANY
-ALL
-ARRAY
-JSONB
-CTE
-WITH RECURSIVE
-LATERAL
-window functions
-FILTER
-FOR UPDATE
-FOR SHARE
-SKIP LOCKED
-full-text search
-advisory locks
-COPY
-LISTEN
-NOTIFY
-```
-
-The architecture must not restrict these capabilities in order to maintain compatibility with another database.
-
-## Raw SQL
-
-Raw SQL is a required escape hatch.
-
-Example target API:
-
-```rust
-db.raw("SELECT * FROM users WHERE id = $1")
-    .bind(id)
-    .all()
-    .await?
-```
-
-Raw SQL must still encourage parameter binding.
-
-Raw SQL should be explicit in the API so that it cannot be confused with typed query-builder expressions.
-
-## Transactions
+# 29. Transactions
 
 Transactions belong to the execution layer.
 
@@ -558,48 +1163,416 @@ tx.update(...)
 tx.commit().await?;
 ```
 
-Query builders should work with both a database executor and a transaction executor without duplicating query-building logic.
+Query construction should remain reusable inside and outside transactions.
 
-## Error Boundaries
+Future transaction functionality may include:
 
-Errors should reflect architectural layers.
+* isolation levels
+* read-only transactions
+* deferrable transactions
+* savepoints
+
+Transactions must not alter Query Builder semantics.
+
+---
+
+# 30. Row Decoding
+
+PostgreSQL responses must be decoded independently from query construction.
 
 Conceptually:
 
 ```text
-BuildError
-CompileError
-
-ConnectionError
-ProtocolError
-DatabaseError
-DecodeError
-PoolError
+DataRow
+   │
+   ▼
+PostgreSQL Type Information
+   │
+   ▼
+Decoder
+   │
+   ▼
+Rust Values
 ```
 
-PostgreSQL database errors should preserve useful server information such as:
+Row decoding is responsible for converting PostgreSQL representations into Rust values.
+
+It should not know how the original query was constructed.
+
+---
+
+# 31. Typed Query Results
+
+Elephant should eventually preserve enough information from typed projections to provide typed results.
+
+For example:
+
+```rust
+db.select((
+    User::id,
+    User::name,
+))
+.from(User::table)
+.all()
+.await?
+```
+
+should ideally produce values corresponding to:
+
+```text
+(Uuid, String)
+```
+
+without requiring users to manually decode rows.
+
+The design must balance:
+
+* type safety
+* compiler diagnostics
+* compile time
+* API ergonomics
+* internal complexity
+
+Do not preserve generic information through every internal layer merely because it exists at the Query Builder boundary.
+
+Typed result information may be carried separately from the semantic AST when that produces a cleaner design.
+
+---
+
+# 32. Table and Struct Mapping
+
+Elephant may provide procedural macros to reduce schema boilerplate.
+
+A future API may resemble:
+
+```rust
+#[derive(Table)]
+#[table(name = "users")]
+struct User {
+    #[primary_key]
+    id: Uuid,
+
+    name: String,
+    email: String,
+    active: bool,
+}
+```
+
+Macros may generate:
+
+* table metadata
+* typed columns
+* mapping metadata
+* repetitive trait implementations
+
+Macros should not contain Elephant's core query semantics.
+
+The Query Builder, AST and compiler should remain ordinary Rust implementations whenever practical.
+
+---
+
+# 33. Relations
+
+Relations belong primarily to schema metadata.
+
+Elephant may know that:
+
+```text
+posts.user_id → users.id
+```
+
+but relations must not imply hidden queries or automatic lazy loading.
+
+Joins remain explicit.
+
+For example:
+
+```rust
+db.select(...)
+    .from(User::table)
+    .left_join(
+        Post::table,
+        Post::user_id.eq(User::id),
+    )
+```
+
+Relation metadata may improve ergonomics later, but must not turn Elephant into Active Record.
+
+---
+
+# 34. No Active Record
+
+Elephant must not introduce model-instance persistence APIs such as:
+
+```rust
+user.save()
+user.destroy()
+user.update()
+```
+
+or class/model-style APIs such as:
+
+```rust
+User::find()
+User::create()
+```
+
+Database operations originate from Elephant's query API.
+
+Models represent data and schema information.
+
+They do not own persistence behavior.
+
+---
+
+# 35. No Hidden Queries
+
+Elephant must never perform unexpected database queries as a side effect of accessing data.
+
+Avoid:
+
+```text
+lazy loading
+automatic relationship fetching
+implicit persistence
+automatic reload
+implicit database validation
+```
+
+Database I/O should always be visible through an execution operation.
+
+---
+
+# 36. Introspection
+
+Elephant should eventually support PostgreSQL schema introspection.
+
+Sources include:
+
+```text
+pg_catalog
+information_schema
+```
+
+Introspection may discover:
+
+* schemas
+* tables
+* columns
+* PostgreSQL types
+* primary keys
+* foreign keys
+* indexes
+* unique constraints
+* check constraints
+* enums
+* sequences
+* extensions
+
+Introspection belongs to tooling/schema infrastructure.
+
+It should not be required for ordinary query construction at runtime.
+
+---
+
+# 37. Migrations
+
+Migration infrastructure may use schema metadata and PostgreSQL introspection.
+
+Conceptually:
+
+```text
+Desired Schema
+      │
+      ├──────────────┐
+      ▼              ▼
+Schema Metadata   PostgreSQL Introspection
+      │              │
+      └──────┬───────┘
+             ▼
+         Schema Diff
+             │
+             ▼
+          Migration
+```
+
+Migration logic should remain separate from runtime query construction.
+
+Applications should not need migration infrastructure merely to execute queries.
+
+---
+
+# 38. CLI
+
+The future Elephant CLI is a tooling layer.
+
+Potential commands include:
+
+```text
+elephant console
+elephant migrate
+elephant migrate:status
+elephant schema:pull
+elephant schema:diff
+elephant generate
+```
+
+The CLI may orchestrate lower-level Elephant components.
+
+Lower-level components must not depend on the CLI.
+
+---
+
+# 39. Elephant Console
+
+Elephant should eventually provide an interactive PostgreSQL/query-builder console.
+
+Conceptually:
+
+```text
+CLI
+ │
+ ▼
+Console
+ │
+ ├── Query Builder
+ ├── Compiler
+ ├── Executor
+ ├── Schema
+ └── Introspection
+```
+
+The console is a consumer of Elephant's architecture.
+
+Elephant's core must not depend on the console.
+
+Target usage:
+
+```text
+$ elephant console
+
+Elephant 0.x
+Database: development
+PostgreSQL 18
+
+elephant>
+```
+
+Queries may be inspected:
+
+```text
+elephant> query.to_sql()
+```
+
+or eventually executed:
+
+```text
+elephant> db.select(...).all().await?
+```
+
+Potential console commands include:
+
+```text
+.sql
+.explain
+.explain_analyze
+.tables
+.schema
+.indexes
+.describe
+```
+
+Architectural decisions in lower layers should keep this use case possible without coupling those layers to interactive tooling.
+
+---
+
+# 40. Observability
+
+Observability is a cross-cutting concern but must not control architecture.
+
+Elephant should eventually integrate naturally with Rust's tracing ecosystem.
+
+Useful boundaries include:
+
+```text
+query compilation
+connection acquisition
+query execution
+protocol communication
+row decoding
+```
+
+Core functionality must not depend on logging being configured.
+
+Sensitive parameter values must not be automatically exposed.
+
+Observability should inspect architectural boundaries rather than bypass them.
+
+---
+
+# 41. Error Boundaries
+
+Errors should correspond to the layer that owns the failure.
+
+Conceptually:
+
+```text
+Query Builder
+    → BuildError
+
+Compiler
+    → CompileError
+
+Connection
+    → ConnectionError
+
+Protocol
+    → ProtocolError
+
+PostgreSQL
+    → DatabaseError
+
+Decoder
+    → DecodeError
+
+Pool
+    → PoolError
+```
+
+PostgreSQL errors should preserve useful server metadata when available:
 
 ```text
 SQLSTATE
 message
 detail
 hint
+schema
 table
 column
 constraint
 ```
 
-when available.
+Errors may later be composed into a convenient public error API.
 
-## Module Boundaries
+Internal error ownership should remain clear.
 
-Initially Elephant should remain a single crate.
+---
 
-Suggested internal organization:
+# 42. Initial Module Boundaries
+
+Elephant should initially remain a single crate.
+
+A reasonable internal direction is:
 
 ```text
 src/
 ├── lib.rs
+│
+├── schema/
+│   ├── mod.rs
+│   ├── table.rs
+│   ├── column.rs
+│   └── identifier.rs
 │
 ├── query/
 │   ├── mod.rs
@@ -611,32 +1584,59 @@ src/
 ├── ast/
 │   ├── mod.rs
 │   ├── expression.rs
-│   └── query.rs
-│
-├── schema/
-│   ├── mod.rs
-│   ├── table.rs
-│   └── column.rs
+│   ├── query.rs
+│   ├── select.rs
+│   ├── insert.rs
+│   ├── update.rs
+│   └── delete.rs
 │
 ├── postgres/
 │   ├── mod.rs
 │   ├── compiler.rs
+│   ├── parameter.rs
 │   └── types.rs
 │
 └── error.rs
 ```
 
-This is a direction, not a requirement to create empty files prematurely.
+This is a direction, not a requirement to create all files immediately.
 
-Modules should only be introduced when implementation requires them.
+Files and modules should only be introduced when their responsibility exists.
 
-## Future Crate Boundaries
+Code organization standards are defined in `docs/development.md`.
 
-If the project becomes large enough, components may eventually become independent crates:
+---
+
+# 43. Future Module Boundaries
+
+As execution capabilities are introduced, additional internal areas may emerge:
 
 ```text
-elephant
-│
+src/
+├── client/
+├── protocol/
+├── transport/
+├── pool/
+├── decode/
+├── migration/
+└── introspection/
+```
+
+These should be created only when required by active milestones.
+
+Do not create empty architecture for future work.
+
+---
+
+# 44. Future Crate Boundaries
+
+If Elephant becomes sufficiently large, components may eventually become independent crates.
+
+Possible workspace:
+
+```text
+elephant/
+├── elephant
 ├── elephant-query
 ├── elephant-macros
 ├── elephant-postgres
@@ -645,127 +1645,180 @@ elephant
 └── elephant-cli
 ```
 
-This split must happen only when there is a concrete architectural reason.
+This split is not an initial architectural requirement.
 
-The initial implementation should favor simplicity.
+A crate boundary should exist only when there is a concrete reason such as:
 
-## Dependency Direction
+* independent compilation
+* optional dependency boundaries
+* procedural macro requirements
+* clearly independent public APIs
+* significant build-time benefits
+* independent testing/reuse
 
-Dependencies should flow downward:
+Until then, prefer a single cohesive crate.
+
+---
+
+# 45. Procedural Macro Boundary
+
+Rust procedural macros require a separate crate when introduced.
+
+When schema derive macros become necessary, a structure such as:
 
 ```text
-Public Query API
-       │
-       ▼
-      AST
-       │
-       ▼
+elephant
+elephant-macros
+```
+
+may therefore be justified.
+
+The macro crate should generate metadata and implementations consumed by Elephant.
+
+It must not become the owner of query semantics.
+
+---
+
+# 46. Query Lifecycle
+
+The complete intended query lifecycle is:
+
+```text
+Schema Metadata
+      │
+      ▼
+Typed Query Builder
+      │
+      ▼
+Validation through Rust Types
+      │
+      ▼
+Semantic AST
+      │
+      ▼
 PostgreSQL Compiler
-
-Execution API
-       │
-       ▼
-     Client
-       │
-       ▼
- PostgreSQL Protocol
-       │
-       ▼
-    TCP / TLS
+      │
+      ▼
+CompiledQuery
+ ┌──────────────┐
+ │ SQL          │
+ │ Bindings     │
+ └──────┬───────┘
+        │
+        ▼
+Executor
+        │
+        ▼
+Connection / Client
+        │
+        ▼
+PostgreSQL Protocol
+        │
+        ▼
+Transport
+        │
+        ▼
+PostgreSQL
+        │
+        ▼
+Transport
+        │
+        ▼
+Protocol Decoder
+        │
+        ▼
+Rows
+        │
+        ▼
+Type Decoder
+        │
+        ▼
+Typed Rust Result
 ```
 
-Higher-level components may depend on lower-level components.
+Every major component should fit clearly somewhere in this lifecycle.
 
-Lower-level components must not depend on higher-level APIs.
+If a new component cannot be placed clearly, its responsibility should be reconsidered.
 
-For example:
+---
 
-```text
-AST → Query Builder
-```
+# 47. Architectural Invariants
 
-is forbidden.
+The following rules are invariants of Elephant.
 
-The correct direction is:
+## 47.1 Query Construction Does Not Perform I/O
 
-```text
-Query Builder → AST
-```
+Building a query never communicates with PostgreSQL.
 
-Likewise:
+## 47.2 AST Contains Semantics, Not Rendered SQL
 
-```text
-PostgreSQL Protocol → Query Builder
-```
+The AST describes the query.
 
-is forbidden.
+The compiler renders it.
 
-## Architectural Invariants
+## 47.3 User Values Become Parameters
 
-The following rules should be treated as invariants.
+Values should use PostgreSQL bindings whenever possible.
 
-### 1. Query construction does not perform I/O
+## 47.4 Identifiers Are Not Values
 
-Building this:
+Identifiers and parameters have separate representations.
 
-```rust
-let query = db
-    .select(...)
-    .from(...)
-    .where_(...);
-```
+## 47.5 Query Builder Is Not the AST
 
-must not communicate with PostgreSQL.
+The public fluent API lowers into an internal representation.
 
-### 2. AST does not contain rendered SQL
+## 47.6 AST Does Not Know About Execution
 
-The AST represents semantics.
+AST nodes do not manage connections or execute themselves.
 
-The compiler produces SQL.
+## 47.7 Compiler Does Not Execute Queries
 
-### 3. User values are bindings
+Compilation produces a `CompiledQuery`.
 
-User-provided values should become PostgreSQL parameters whenever possible.
+Nothing more.
 
-### 4. PostgreSQL is not abstracted away
+## 47.8 Executor Does Not Rebuild Queries
 
-Do not introduce abstractions whose only purpose is compatibility with other databases.
+The Executor consumes compiled queries.
 
-### 5. No implicit queries
+## 47.9 Protocol Does Not Know Query Builder Concepts
 
-A method that appears to manipulate an in-memory object must not unexpectedly execute SQL.
+Wire protocol code remains independent from high-level query construction.
 
-### 6. No Active Record
+## 47.10 PostgreSQL Is Not Abstracted Away
 
-Database operations originate from the query/execution API, not persistent model instances.
+PostgreSQL-specific capabilities are first-class features.
 
-### 7. Query Builder remains independently usable
+## 47.11 No Active Record
 
-The query-building and compilation layers must not require a live database.
+Persistence does not belong to model instances.
 
-This must always be possible:
+## 47.12 No Hidden Queries
 
-```rust
-let compiled = query.to_sql();
-```
+Database I/O is explicit.
 
-without PostgreSQL running.
+## 47.13 Query Compilation Is Deterministic
 
-### 8. Type safety must have semantic value
+Equivalent AST input produces deterministic SQL and binding ordering.
 
-Do not introduce complex generic machinery unless it prevents real classes of invalid queries or substantially improves result inference.
+## 47.14 Type Safety Must Provide Semantic Value
 
-### 9. Escape hatches remain available
+Complex type machinery must prevent meaningful invalid states or improve useful inference.
 
-Elephant should make common operations safe and ergonomic without preventing advanced PostgreSQL usage.
+## 47.15 Escape Hatches Remain Available
 
-### 10. Public API stability matters
+Advanced PostgreSQL usage must remain possible.
 
-Internal representations may evolve.
+## 47.16 Tooling Depends on Core, Never the Reverse
 
-Public APIs should remain intentionally small and carefully designed.
+CLI, console, migrations and development tooling may consume core Elephant functionality.
 
-## Architectural Decision Rule
+Core query infrastructure must not depend on those tools.
+
+---
+
+# 48. Architectural Decision Rules
 
 When choosing between an ORM-like abstraction and PostgreSQL semantics:
 
@@ -779,22 +1832,157 @@ When choosing between multi-database compatibility and better PostgreSQL support
 
 > Prefer PostgreSQL.
 
-When choosing between clever abstractions and understandable Rust:
+When choosing between preserving compile-time information everywhere and keeping internal architecture understandable:
+
+> Preserve compile-time information where it provides concrete value; otherwise prefer a simpler internal representation.
+
+When choosing between clever generic machinery and understandable Rust:
 
 > Prefer understandable Rust.
 
-When choosing between convenience and compile-time safety where both cannot reasonably coexist:
+When choosing between convenience and meaningful compile-time safety:
 
-> Prefer compile-time safety unless the ergonomics become impractical.
+> Prefer compile-time safety unless the resulting API becomes impractical.
 
-## Product Boundary
+When choosing between speculative flexibility and solving a current requirement:
 
-Elephant is:
+> Solve the current requirement.
 
-> A PostgreSQL-first, type-safe query builder for Rust.
+---
 
-Elephant is not:
+# 49. Architectural Change Policy
 
-> An ORM that happens to support PostgreSQL.
+This document is expected to evolve more slowly than implementation code.
 
-The architecture must preserve this distinction as the project evolves.
+Architecture should not be changed merely because a local implementation becomes inconvenient.
+
+An architectural change is justified when:
+
+* a current milestone exposes a real architectural limitation;
+* an invariant prevents a legitimate required capability;
+* a dependency boundary is demonstrably incorrect;
+* the current design creates unavoidable coupling;
+* implementation experience provides evidence for a better boundary.
+
+When an architectural change is required:
+
+1. identify the concrete problem;
+2. determine which architectural rule is affected;
+3. update this document intentionally;
+4. update affected development or milestone documentation;
+5. only then implement the new direction.
+
+Do not silently violate architecture and leave documentation outdated.
+
+For significant decisions with meaningful alternatives or long-term consequences, create an Architecture Decision Record.
+
+A future structure may be:
+
+```text
+docs/
+├── architecture.md
+├── development.md
+├── adr/
+│   ├── 0001-query-ast-representation.md
+│   ├── 0002-postgres-driver-strategy.md
+│   └── ...
+└── milestones/
+```
+
+ADR files should explain:
+
+```text
+Context
+Decision
+Alternatives
+Consequences
+```
+
+They should be introduced when real architectural decisions require them, not preemptively.
+
+---
+
+# 50. Architectural Debugging Model
+
+The architecture should make failures traceable through clear boundaries.
+
+For query construction:
+
+```text
+Public API
+    │
+    ▼
+Was the typed operation interpreted correctly?
+    │
+    ▼
+Is the AST correct?
+    │
+    ▼
+Did the compiler render the AST correctly?
+    │
+    ▼
+Are SQL and bindings correct?
+```
+
+For future execution:
+
+```text
+CompiledQuery
+      │
+      ▼
+Was the connection acquired?
+      │
+      ▼
+Was the query encoded correctly?
+      │
+      ▼
+What did PostgreSQL return?
+      │
+      ▼
+Was the response decoded correctly?
+      │
+      ▼
+Was the Rust result mapped correctly?
+```
+
+A defect should be fixed in the layer that owns it.
+
+Do not bypass architectural boundaries to patch symptoms in another layer.
+
+---
+
+# 51. Final Architectural Principle
+
+Elephant should remain understandable as it grows.
+
+Its architecture should make it possible to answer clearly:
+
+```text
+Where is a query constructed?
+
+Where is its semantic representation?
+
+Where does PostgreSQL-specific SQL generation happen?
+
+Where are parameters created?
+
+Where does execution begin?
+
+Where is a connection managed?
+
+Where is the PostgreSQL protocol implemented?
+
+Where are rows decoded?
+
+Where does schema metadata live?
+```
+
+Each question should point to a clear architectural layer.
+
+The goal is not maximum abstraction.
+
+The goal is a PostgreSQL library whose boundaries remain obvious, whose behavior remains predictable, and whose internals can evolve without turning the project into a tightly coupled system.
+
+Elephant should remain:
+
+> PostgreSQL-first, type-safe, explicit and understandable.
