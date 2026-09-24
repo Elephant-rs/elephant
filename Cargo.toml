@@ -1,0 +1,9 @@
+[package]
+name = "elephant"
+version = "0.0.1"
+edition = "2024"
+description = "A type-safe PostgreSQL query builder for Rust"
+license = "MIT"
+repository = "https://github.com/Elephant-rs/elephant"
+
+[dependencies]
