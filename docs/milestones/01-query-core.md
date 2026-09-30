@@ -880,80 +880,80 @@ The milestone is complete only when all applicable criteria are verified.
 
 ## Schema
 
-* [ ] Tables can be represented.
-* [ ] Schema-qualified tables can be represented.
-* [ ] Typed columns can be represented.
-* [ ] Columns preserve meaningful Rust type information.
-* [ ] Identifiers are distinct from parameter values.
-* [ ] PostgreSQL identifier quoting is implemented.
-* [ ] Embedded identifier quotes are escaped correctly.
+* [x] Tables can be represented.
+* [x] Schema-qualified tables can be represented.
+* [x] Typed columns can be represented.
+* [x] Columns preserve meaningful Rust type information.
+* [x] Identifiers are distinct from parameter values.
+* [x] PostgreSQL identifier quoting is implemented.
+* [x] Embedded identifier quotes are escaped correctly.
 
 ## Expressions
 
-* [ ] Equality is supported.
-* [ ] Inequality is supported.
-* [ ] Greater-than is supported.
-* [ ] Greater-than-or-equal is supported.
-* [ ] Less-than is supported.
-* [ ] Less-than-or-equal is supported.
-* [ ] AND is supported.
-* [ ] OR is supported.
-* [ ] Nested expressions preserve semantics.
-* [ ] Compatible comparisons are type-safe.
-* [ ] Incompatible comparisons are rejected by the typed API.
+* [x] Equality is supported.
+* [x] Inequality is supported.
+* [x] Greater-than is supported.
+* [x] Greater-than-or-equal is supported.
+* [x] Less-than is supported.
+* [x] Less-than-or-equal is supported.
+* [x] AND is supported.
+* [x] OR is supported.
+* [x] Nested expressions preserve semantics.
+* [x] Compatible comparisons are type-safe.
+* [x] Incompatible comparisons are rejected by the typed API.
 
 ## SELECT
 
-* [ ] Explicit projections are supported.
-* [ ] SELECT-all can be represented.
-* [ ] FROM is supported.
-* [ ] WHERE is supported.
-* [ ] ORDER BY ASC is supported.
-* [ ] ORDER BY DESC is supported.
-* [ ] Multiple ordering expressions can be represented.
-* [ ] LIMIT is supported.
-* [ ] OFFSET is supported.
-* [ ] Negative LIMIT values cannot be represented.
-* [ ] Negative OFFSET values cannot be represented.
+* [x] Explicit projections are supported.
+* [x] SELECT-all can be represented.
+* [x] FROM is supported.
+* [x] WHERE is supported.
+* [x] ORDER BY ASC is supported.
+* [x] ORDER BY DESC is supported.
+* [x] Multiple ordering expressions can be represented.
+* [x] LIMIT is supported.
+* [x] OFFSET is supported.
+* [x] Negative LIMIT values cannot be represented.
+* [x] Negative OFFSET values cannot be represented.
 
 ## Compiler
 
-* [ ] SELECT AST compiles to PostgreSQL SQL.
-* [ ] User values become bindings.
-* [ ] Parameters use PostgreSQL `$N` syntax.
-* [ ] Parameter numbering is deterministic.
-* [ ] Nested expressions preserve binding order.
-* [ ] Schema-qualified identifiers compile correctly.
-* [ ] Compilation requires no database connection.
-* [ ] Independent compilations do not share parameter state.
-* [ ] `CompiledQuery` contains SQL and ordered parameters.
+* [x] SELECT AST compiles to PostgreSQL SQL.
+* [x] User values become bindings.
+* [x] Parameters use PostgreSQL `$N` syntax.
+* [x] Parameter numbering is deterministic.
+* [x] Nested expressions preserve binding order.
+* [x] Schema-qualified identifiers compile correctly.
+* [x] Compilation requires no database connection.
+* [x] Independent compilations do not share parameter state.
+* [x] `CompiledQuery` contains SQL and ordered parameters.
 
 ## Architecture
 
-* [ ] Query construction performs no I/O.
-* [ ] AST contains no rendered SQL.
-* [ ] AST does not depend on Query Builder.
-* [ ] AST does not depend on PostgreSQL Compiler.
-* [ ] Compiler does not perform execution.
-* [ ] No future execution infrastructure was introduced.
-* [ ] Public API exposure is intentional and minimal.
+* [x] Query construction performs no I/O.
+* [x] AST contains no rendered SQL.
+* [x] AST does not depend on Query Builder.
+* [x] AST does not depend on PostgreSQL Compiler.
+* [x] Compiler does not perform execution.
+* [x] No future execution infrastructure was introduced.
+* [x] Public API exposure is intentional and minimal.
 
 ## Tests
 
-* [ ] Required unit tests exist.
-* [ ] Parameter ordering is tested.
-* [ ] Expression precedence is tested.
-* [ ] Identifier escaping is tested.
-* [ ] SQL-looking values remain parameters.
-* [ ] Deterministic compilation is tested.
-* [ ] Type compatibility is tested.
-* [ ] Type incompatibility is compile-tested where practical.
+* [x] Required unit tests exist.
+* [x] Parameter ordering is tested.
+* [x] Expression precedence is tested.
+* [x] Identifier escaping is tested.
+* [x] SQL-looking values remain parameters.
+* [x] Deterministic compilation is tested.
+* [x] Type compatibility is tested.
+* [x] Type incompatibility is compile-tested where practical.
 
 ## Quality
 
-* [ ] `cargo fmt --check` passes.
-* [ ] `cargo clippy --all-targets --all-features -- -D warnings` passes.
-* [ ] `cargo test` passes.
+* [x] `cargo fmt --check` passes.
+* [x] `cargo clippy --all-targets --all-features -- -D warnings` passes.
+* [x] `cargo test` passes.
 
 ---
 
